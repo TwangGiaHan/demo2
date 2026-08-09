@@ -1,0 +1,2311 @@
+Được. Với thông tin mới này, mình sẽ reset lại thiết kế theo đúng TO-BE Uniform Process, không dùng bản Gift/Uniform trước đó làm baseline nữa.
+Điểm quan trọng là Uniform lần này không chỉ là một form CRUD. Nó có 3 lớp nghiệp vụ:
+Operator/Employee Registration — public/mobile-friendly form.
+Intranet Portal — Admin/GA quản lý request, approval, stock, delivery.
+AI Agent Automation — tự động gom request → validate → submit approval → lấy approval → thông báo → theo dõi delivery.
+Ngoài ra, mình sẽ bám theo stack bạn đưa:
+Frontend:
+React + TypeScript
+webroot/app/pages
+├── master/       # Admin / dashboard / management
+└── operator/     # Employee registration
+
+Backend:
+PHP
+├── Controller
+├── Model
+└── Shell         # scheduled/automatic jobs
+
+Integration:
+Intranet / mySingle / Mail / Knox Mail
+
+Ảnh hiện tại cũng cho thấy hệ thống cũ đang có các trường như Requester Name, Requester GEN, Department, Cost Center, Type, Category, Print Name, Size, Reason, Code, Current Stock, Pending, Price, Order Quantity; đây là cơ sở để mapping từ AS-IS sang TO-BE. Ảnh giao diện mới lại định hướng rõ hơn về đăng ký đồng phục, bảng size và tiêu chuẩn phát, trong đó bảng Ghile, Áo Thun nam/nữ và Pregnancy được hiển thị ngay trên trang.
+
+1. SRS — SOFTWARE REQUIREMENT SPECIFICATION
+1.1. System Name
+Uniform Management & AI Automation System
+Có thể đặt module:
+Uniform Management
+
+hoặc:
+Uniform Request System
+
+
+1.2. Objective
+Hệ thống TO-BE nhằm thay thế quy trình:
+Employee đăng ký
+        ↓
+GA/HR kiểm tra thủ công
+        ↓
+Tạo approval
+        ↓
+Theo dõi approval
+        ↓
+Kiểm tra stock
+        ↓
+Thông báo
+        ↓
+Admin nhận hàng
+        ↓
+Phát hàng
+        ↓
+Thu hồi đồng phục cũ
+
+bằng:
+Employee Registration
+        ↓
+AI Agent tự động collect
+        ↓
+AI Agent validate
+        ↓
+AI Agent submit approval
+        ↓
+Part Leader
+        ↓
+GA PIC
+        ↓
+AI Agent collect approval
+        ↓
+AI Agent notify
+        ↓
+GA Warehouse – Thursday
+        ↓
+Admin Delivery
+        ↓
+Employee Receive
+        ↓
+Old Uniform Return
+        ↓
+Evidence
+
+
+1.3. Scope
+In Scope
+Operator
+Đăng ký đồng phục.
+Nhập GEN ID.
+Chọn Type.
+Chọn Category.
+Chọn Print Name.
+Chọn Size.
+Chọn Reason.
+Upload ảnh nếu đổi đồng phục.
+Xác nhận đã nhận.
+Xem thông tin request.
+Admin Portal
+Dashboard.
+Request management.
+Request detail.
+Stock.
+Approval status.
+Delivery schedule.
+Delivery confirmation.
+Upload evidence.
+Theo dõi đồng phục cũ cần thu hồi.
+AI Agent
+Auto collect request.
+Validate request.
+Detect invalid request.
+Group request theo department.
+Generate approval request.
+Submit approval.
+Collect approved requests.
+Generate notification.
+Reminder.
+Theo dõi delivery workflow.
+Integration
+Employee/GEN data.
+Intranet.
+mySingle.
+Mail.
+Knox Mail.
+
+1.4. Out of Scope
+Chưa nên đưa vào MVP:
+Payment.
+Inventory purchasing.
+Supplier management.
+Accounting.
+Advanced AI image recognition.
+Automatic size recommendation bằng AI.
+Face recognition.
+Nếu sau này muốn AI đọc ảnh đồng phục hư hỏng để xác định "rách/khóa/vết bẩn", đó là AI enhancement, không phải core MVP.
+
+2. ACTORS
+Actor
+Vai trò
+Operator
+Employee không có Knox ID, đăng ký uniform
+Employee
+Employee thông thường
+Part Leader
+Approval level 1
+GA PIC
+Approval level 2 / quản lý GA
+Admin
+Nhận và phát uniform
+AI Agent
+Automation engine
+HR/GA
+Business owner
+Intranet
+System of record / approval / stock
+mySingle
+Approval system
+Mail
+Notification
+Knox Mail
+Internal notification
+
+
+3. BUSINESS RULES
+Đây là phần quan trọng nhất để code.
+BR-001 — Annual General Allocation
+Thông thường:
+General employee:
+1 pc / year
+
+
+BR-002 — New Hire
+Indirect
+New hire
+→ 2 Ghile
+
+Direct
+New hire
+→ 3 T-shirt
+
+Theo requirement hiện tại:
+IF Type = Ghile
+AND Reason = New Hire
+THEN Qty = 2
+
+IF Type = T-shirt
+AND Reason = New Hire
+THEN Qty = 3
+
+
+BR-003 — Maternity
+Reason = Maternity
+→ Quantity = 2
+
+Nhưng 2 lần cấp có schedule:
+Week 11 → Green
+Week 24 → Pink
+
+Do đó không nên lưu đơn giản là quantity = 2 rồi kết thúc.
+Nên tạo allocation:
+Maternity Allocation
+├── Week 11
+│   └── Green
+│
+└── Week 24
+    └── Pink
+
+
+BR-004 — Replacement
+Nếu:
+Reason = Replace
+
+thì:
+Attachment bắt buộc
+
+Ví dụ:
+Rách.
+Hư khóa.
+Vết bẩn không giặt được.
+Requirement này được ghi rõ trong phần approval attachment.
+
+BR-005 — Normal Request
+Các trường hợp còn lại:
+Quantity = 1
+
+
+BR-006 — Type → Category → Size
+Đây là dependent dropdown:
+Type
+ ↓
+Category
+ ↓
+Size
+
+Ví dụ:
+Type = Ghile
+
+Category
+├── Visitor
+├── Office
+└── ...
+
+Size
+├── S
+├── M
+├── L
+└── XL
+
+Nếu chọn:
+Type = T-shirt Male
+
+thì chỉ được hiển thị category/size hợp lệ của T-shirt Male.
+Frontend không được tự quyết định logic này.
+Backend phải validate lại.
+
+BR-007 — GEN ID
+Request phải gắn với:
+GEN ID
+
+GEN ID là key để lookup employee information.
+Tối thiểu:
+GEN ID
+Name
+Department
+Cost Center
+Employee Type
+
+
+BR-008 — Employee Information
+Khi user nhập GEN ID:
+GEN ID
+ ↓
+Employee Master
+ ↓
+Requester Name
+Department
+Cost Center
+...
+
+Các thông tin master không nên cho operator tự sửa.
+
+BR-009 — Stock
+Stock phải được kiểm tra trước approval hoặc tại bước AI validation.
+Ví dụ:
+Ghile / Visitor / S
+
+Current Stock = 49
+Pending = 0
+
+Có thể tính:
+Available Stock
+=
+Current Stock - Pending
+
+
+BR-010 — Insufficient Stock
+Nếu:
+Available Stock < Requested Quantity
+
+thì request:
+BLOCKED_STOCK
+
+và AI Agent không submit approval.
+
+BR-011 — Approval
+Approval flow:
+AI Automation
+      ↓
+Part Leader
+      ↓
+GA PIC
+      ↓
+Admin Notification
+
+Theo mẫu:
+Drafter: Al Automation
+Approve: Part Leader
+Approve: GA PIC
+Notify: Admin T/F
+
+
+BR-012 — Batch Cycle
+AI Agent collect request:
+Option A
+Every Monday
+
+Option B
+2 times / month
+
+Đây là configuration, không hard-code.
+Ví dụ:
+UNIFORM_BATCH_FREQUENCY = WEEKLY
+
+hoặc:
+UNIFORM_BATCH_FREQUENCY = BI_MONTHLY
+
+
+BR-013 — Wednesday
+AI Agent:
+Wednesday
+→ collect approved requests
+
+Sau đó thông báo delivery.
+
+BR-014 — Thursday
+GA warehouse:
+Every Thursday
+→ receive / prepare uniform
+
+
+BR-015 — Delivery
+Admin:
+Receive from GA warehouse
+       ↓
+Deliver to collection point / Post box
+       ↓
+Employee receives
+       ↓
+Employee returns old uniform
+
+
+BR-016 — Received Confirmation
+Khi employee nhận:
+Received = TRUE
+received_at
+
+Date + time là evidence.
+
+BR-017 — Old Uniform
+Đối với replacement:
+New uniform
+      ↓
+Employee receives
+      ↓
+Old uniform → Post Box
+      ↓
+GA collects
+
+
+4. FUNCTIONAL REQUIREMENTS
+FR-OP-001 — Registration Page
+URL đề xuất:
+/uniform/register
+
+hoặc:
+/uniform/operator/register
+
+Có thể truy cập:
+QR Code
+   ↓
+Registration Page
+
+hoặc:
+HR Portal
+   ↓
+Uniform Registration
+
+
+FR-OP-002 — Language
+UI:
+[VIE] [ENG]
+
+Mặc định:
+Vietnamese
+
+Ảnh mới cũng đang thể hiện rõ switch VIE / ENG.
+
+FR-OP-003 — Mobile First
+Form phải ưu tiên:
+Mobile
+Tablet
+Desktop
+
+Không thiết kế desktop-first giống màn hình Intranet cũ.
+
+FR-OP-004 — Size Chart
+Size chart phải nằm trên cùng một trang với form.
+Không mở popup/tab khác.
+Flow:
+Form
+ ↓
+Size Chart
+ ↓
+User scroll
+ ↓
+Form
+
+Người dùng có thể scroll lên/xuống để tham khảo.
+
+FR-OP-005 — Uniform Image
+Hiển thị ảnh uniform ngay trên trang.
+Ví dụ:
+Ghile
+[Image]
+
+T-shirt Male
+[Image]
+
+T-shirt Female
+[Image]
+
+Pregnant
+[Image]
+
+
+FR-OP-006 — Request Form
+Form đề xuất:
+GEN ID
+Requester Name
+Department
+Cost Center
+
+Request
+Type
+Category
+Print Name
+Size
+Reason
+Quantity
+
+Attachment
+
+Trong đó:
+Read-only
+Requester Name
+Department
+Cost Center
+
+User input
+GEN ID
+Type
+Category
+Print Name
+Size
+Reason
+Attachment
+
+Auto calculated
+Quantity
+
+
+5. TO-BE USER FLOW
+5.1 Operator Registration
+START
+  │
+  ▼
+Open QR / Link
+  │
+  ▼
+Uniform Registration
+  │
+  ▼
+Enter GEN ID
+  │
+  ▼
+Lookup Employee
+  │
+  ├── Not Found → ERROR
+  │
+  ▼
+Show Employee Information
+  │
+  ▼
+Select Type
+  │
+  ▼
+Filter Category
+  │
+  ▼
+Select Category
+  │
+  ▼
+Filter Size
+  │
+  ▼
+Select Print Name
+  │
+  ▼
+Select Reason
+  │
+  ├── Replace
+  │      ↓
+  │   Upload Image
+  │
+  ▼
+Calculate Quantity
+  │
+  ▼
+Validate
+  │
+  ├── Invalid → Show Error
+  │
+  ▼
+Submit
+  │
+  ▼
+Request Created
+  │
+  ▼
+Show Request Number
+  │
+  ▼
+END
+
+
+5.2 AI Agent Flow
+SCHEDULE
+   │
+   ▼
+Collect New Requests
+   │
+   ▼
+Load Employee Master
+   │
+   ▼
+Validate Request
+   │
+   ├── Employee
+   ├── Type
+   ├── Category
+   ├── Size
+   ├── Reason
+   ├── Quantity
+   ├── Stock
+   └── Annual Policy
+   │
+   ▼
+Validation Result
+   │
+   ├── INVALID
+   │      ↓
+   │   Flag Request
+   │
+   └── VALID
+          │
+          ▼
+     Group by Department
+          │
+          ▼
+    Generate Approval
+          │
+          ▼
+      mySingle
+          │
+          ▼
+      Part Leader
+          │
+          ▼
+        GA PIC
+
+
+5.3 Approval Flow
+                   AI Agent
+                       │
+                       ▼
+                 Draft Approval
+                       │
+                       ▼
+                  Part Leader
+                  /          \
+             Reject          Approve
+               │               │
+               ▼               ▼
+           REJECTED          GA PIC
+                                │
+                         ┌──────┴──────┐
+                       Reject       Approve
+                         │             │
+                         ▼             ▼
+                     REJECTED      APPROVED
+                                       │
+                                       ▼
+                               Notify Admin
+
+
+5.4 Wednesday Automation
+WEDNESDAY
+    │
+    ▼
+AI Agent
+    │
+    ▼
+Collect APPROVED requests
+    │
+    ▼
+Group by Department
+    │
+    ▼
+Determine Delivery Date
+    │
+    ▼
+Send notification
+    │
+    ├── Employee
+    └── Admin
+
+Employee notification:
+Your uniform is ready.
+
+Delivery:
+Thursday
+Location:
+XXXX
+
+For replacement:
+Please bring your old damaged uniform.
+
+
+5.5 Thursday Delivery
+THURSDAY
+    │
+    ▼
+Admin
+    │
+    ▼
+Receive uniform from GA
+    │
+    ▼
+Check quantity
+    │
+    ▼
+Go to delivery point
+    │
+    ▼
+Employee arrives
+    │
+    ▼
+Verify employee
+    │
+    ▼
+Deliver uniform
+    │
+    ▼
+Employee confirms Received
+    │
+    ▼
+System records Date/Time
+    │
+    ▼
+Upload Evidence
+    │
+    ▼
+Old uniform?
+    │
+ ┌──┴──┐
+No     Yes
+│       │
+▼       ▼
+END   Post Box
+         │
+         ▼
+       GA
+
+
+6. USE CASES
+UC-01 — Employee Register Uniform
+Actor: Operator
+Preconditions
+GEN ID exists.
+Registration period is open.
+Main Flow
+Operator opens registration link.
+Enters GEN ID.
+System retrieves employee.
+System displays employee information.
+Operator selects Type.
+System filters Category.
+Operator selects Category.
+System filters Size.
+Operator selects Size.
+Operator selects Reason.
+System calculates Quantity.
+If Replace → system requires image.
+User submits.
+Backend validates.
+Request is created.
+Postcondition
+REQUESTED
+
+
+UC-02 — Validate Request
+Actor: AI Agent
+Checks:
+Employee valid?
+Type valid?
+Category valid?
+Size valid?
+Reason valid?
+Quantity valid?
+Stock sufficient?
+Annual limit?
+Duplicate request?
+Attachment required?
+
+
+UC-03 — Submit Approval
+Actor: AI Agent
+Groups:
+Department
+
+Creates approval request.
+
+UC-04 — Approve Request
+Actor: Part Leader
+Actions:
+Approve
+Reject
+
+
+UC-05 — GA Approval
+Actor: GA PIC
+Actions:
+Approve
+Reject
+
+
+UC-06 — Collect Approved Request
+Actor: AI Agent
+Scheduled Wednesday.
+
+UC-07 — Notify Delivery
+Actor: AI Agent
+Notify:
+Employee
+Admin
+
+
+UC-08 — Receive Uniform
+Actor: Admin
+Receive from GA warehouse.
+Verify quantity.
+Deliver.
+Verify employee.
+Employee confirms.
+Upload evidence.
+Record received datetime.
+
+UC-09 — Return Old Uniform
+Actor: Employee
+For replacement:
+Old Uniform
+→ Post Box
+→ GA
+
+
+UC-10 — Manage Uniform Master
+Actor: Admin/GA
+Manage:
+Type
+Category
+Size
+Print Name
+Policy
+Stock
+Image
+Delivery configuration
+
+
+7. DATABASE DESIGN
+Mình khuyến nghị không copy toàn bộ Employee Master Data vào database Uniform.
+Nếu Intranet đã có employee master, Uniform module chỉ nên reference:
+GEN_ID
+
+và có thể cache một số field cần thiết.
+
+7.1 uniform_types
+uniform_types
+-------------
+id                  BIGINT PK
+code                VARCHAR(30) UNIQUE
+name                VARCHAR(100)
+gender              VARCHAR(20)
+description         TEXT
+image_url           VARCHAR(500)
+is_active           BOOLEAN
+created_at          DATETIME
+updated_at          DATETIME
+
+Ví dụ:
+GHILE
+TSHIRT_MALE
+TSHIRT_FEMALE
+PREGNANT
+
+
+7.2 uniform_categories
+uniform_categories
+------------------
+id                  BIGINT PK
+type_id             BIGINT FK
+code                VARCHAR(30)
+name                VARCHAR(100)
+description         TEXT
+is_active           BOOLEAN
+created_at          DATETIME
+updated_at          DATETIME
+
+Constraint:
+UNIQUE(type_id, code)
+
+
+7.3 uniform_sizes
+uniform_sizes
+-------------
+id                  BIGINT PK
+code                VARCHAR(20)
+name                VARCHAR(50)
+sort_order          INT
+is_active            BOOLEAN
+
+
+7.4 uniform_type_sizes
+uniform_type_sizes
+------------------
+id                  BIGINT PK
+type_id             BIGINT FK
+category_id         BIGINT FK NULL
+size_id             BIGINT FK
+is_active           BOOLEAN
+
+Dùng để đảm bảo:
+Type
+→ Category
+→ Size
+
+hợp lệ.
+
+7.5 uniform_print_names
+uniform_print_names
+-------------------
+id                  BIGINT PK
+code                VARCHAR(50)
+name                VARCHAR(100)
+is_active            BOOLEAN
+
+Nếu Print Name phụ thuộc Type/Category:
+uniform_print_name_rules
+------------------------
+id
+type_id
+category_id
+print_name_id
+
+
+7.6 uniform_reasons
+uniform_reasons
+---------------
+id                  BIGINT PK
+code                VARCHAR(30) UNIQUE
+name                VARCHAR(100)
+requires_attachment BOOLEAN
+default_quantity    INT
+is_active           BOOLEAN
+
+Data:
+NEW_HIRE
+MATERNITY
+REPLACE
+GENERAL
+
+
+7.7 uniform_policies
+Không nên hard-code quantity vào PHP.
+uniform_policies
+----------------
+id
+policy_code
+type_id
+reason_id
+employee_group
+quantity
+period_type
+period_value
+effective_from
+effective_to
+is_active
+
+Ví dụ:
+Type
+Reason
+Group
+Qty
+Ghile
+New Hire
+Indirect
+2
+T-shirt
+New Hire
+Direct
+3
+Pregnant
+Maternity
+Any
+2
+Any
+Other
+Any
+1
+
+
+7.8 uniform_maternity_allocations
+Vì maternity có 2 mốc:
+uniform_maternity_allocations
+------------------------------
+id
+request_id
+week_no
+color
+scheduled_date
+status
+delivered_at
+
+Data:
+11 → Green
+24 → Pink
+
+
+7.9 uniform_requests
+Đây là bảng trung tâm.
+uniform_requests
+----------------
+id                    BIGINT PK
+request_no            VARCHAR(50) UNIQUE
+gen_id                VARCHAR(50)
+requester_name        VARCHAR(150)
+department_code       VARCHAR(50)
+department_name       VARCHAR(150)
+cost_center            VARCHAR(50)
+
+type_id               BIGINT FK
+category_id           BIGINT FK
+print_name_id         BIGINT FK NULL
+size_id               BIGINT FK
+
+reason_id             BIGINT FK
+quantity              INT
+
+status                VARCHAR(40)
+
+submitted_at          DATETIME
+validated_at          DATETIME
+approved_at           DATETIME
+rejected_at           DATETIME
+completed_at          DATETIME
+
+created_at            DATETIME
+updated_at            DATETIME
+
+
+7.10 uniform_request_attachments
+uniform_request_attachments
+---------------------------
+id
+request_id
+file_name
+file_path
+file_type
+file_size
+attachment_type
+uploaded_by
+uploaded_at
+
+attachment_type:
+DAMAGED_UNIFORM
+OTHER
+
+
+7.11 uniform_stock
+uniform_stock
+-------------
+id
+type_id
+category_id
+size_id
+
+current_stock
+pending_quantity
+reserved_quantity
+
+last_synced_at
+created_at
+updated_at
+
+Available:
+available =
+current_stock
+- pending_quantity
+- reserved_quantity
+
+
+7.12 uniform_stock_transactions
+Không nên chỉ update stock mà không lưu lịch sử.
+uniform_stock_transactions
+--------------------------
+id
+stock_id
+transaction_type
+quantity
+reference_type
+reference_id
+before_quantity
+after_quantity
+created_at
+created_by
+
+Ví dụ:
+SYNC
+RESERVE
+RELEASE
+DELIVERY
+ADJUSTMENT
+
+
+7.13 uniform_approvals
+uniform_approvals
+-----------------
+id
+approval_no
+department_code
+
+request_batch_id
+
+approval_system
+external_approval_id
+
+status
+
+submitted_at
+completed_at
+
+created_at
+updated_at
+
+
+7.14 uniform_approval_steps
+uniform_approval_steps
+----------------------
+id
+approval_id
+
+step_no
+step_code
+
+approver_type
+approver_id
+approver_name
+
+status
+
+approved_at
+rejected_at
+comment
+
+Data:
+1 PART_LEADER
+2 GA_PIC
+
+
+7.15 uniform_approval_requests
+Nếu một approval chứa nhiều employee:
+uniform_approval_requests
+-------------------------
+id
+approval_id
+request_id
+
+Quan hệ:
+Approval
+   │
+   ├── Request 1
+   ├── Request 2
+   ├── Request 3
+   └── Request N
+
+
+7.16 uniform_delivery_batches
+Dùng cho thứ 5.
+uniform_delivery_batches
+------------------------
+id
+batch_no
+delivery_date
+location
+status
+
+received_from_ga_at
+received_by
+
+created_at
+updated_at
+
+
+7.17 uniform_delivery_items
+uniform_delivery_items
+----------------------
+id
+batch_id
+request_id
+
+quantity
+delivered_quantity
+
+status
+received_at
+received_by
+
+
+7.18 uniform_delivery_evidence
+uniform_delivery_evidence
+-------------------------
+id
+request_id
+delivery_item_id
+
+file_path
+file_name
+
+uploaded_by
+uploaded_at
+
+
+7.19 uniform_old_return
+uniform_old_returns
+-------------------
+id
+request_id
+required
+status
+
+post_box_location
+returned_at
+collected_at
+collected_by
+
+evidence_file
+remarks
+
+Status:
+NOT_REQUIRED
+WAITING_RETURN
+RETURNED_TO_POSTBOX
+COLLECTED_BY_GA
+
+
+7.20 uniform_notifications
+uniform_notifications
+---------------------
+id
+request_id
+recipient_gen_id
+notification_type
+channel
+
+subject
+content
+
+status
+sent_at
+error_message
+
+Channel:
+MAIL
+KNOX_MAIL
+APP
+
+
+7.21 uniform_jobs
+Theo dõi Shell/AI automation.
+uniform_jobs
+------------
+id
+job_type
+started_at
+completed_at
+status
+
+total_records
+success_records
+failed_records
+
+error_message
+
+Job type:
+COLLECT_REQUEST
+VALIDATE_REQUEST
+SUBMIT_APPROVAL
+COLLECT_APPROVAL
+NOTIFY_DELIVERY
+STOCK_SYNC
+REMINDER
+
+
+7.22 uniform_audit_logs
+uniform_audit_logs
+------------------
+id
+entity_type
+entity_id
+
+action
+old_value
+new_value
+
+performed_by
+performed_at
+ip_address
+user_agent
+
+
+8. ERD CHI TIẾT
+                        ┌──────────────────────┐
+                         │   EMPLOYEE MASTER     │
+                         │──────────────────────│
+                         │ GEN_ID PK             │
+                         │ Name                  │
+                         │ Department            │
+                         │ Cost Center           │
+                         └──────────┬───────────┘
+                                    │
+                                    │ 1
+                                    │
+                                    │ N
+                         ┌──────────▼───────────┐
+                         │  UNIFORM_REQUEST     │
+                         │──────────────────────│
+                         │ id PK                │
+                         │ request_no           │
+                         │ gen_id FK            │
+                         │ type_id FK           │
+                         │ category_id FK       │
+                         │ print_name_id FK     │
+                         │ size_id FK           │
+                         │ reason_id FK         │
+                         │ quantity             │
+                         │ status               │
+                         └───────┬──────┬───────┘
+                                 │      │
+                 ┌───────────────┘      └─────────────────┐
+                 │                                        │
+                 ▼                                        ▼
+     ┌────────────────────┐                    ┌─────────────────────┐
+     │ REQUEST_ATTACHMENT  │                    │ APPROVAL_REQUEST    │
+     │────────────────────│                    │─────────────────────│
+     │ id PK              │                    │ id PK                │
+     │ request_id FK      │                    │ approval_id FK       │
+     │ file_path          │                    │ request_id FK        │
+     └────────────────────┘                    └──────────┬──────────┘
+                                                         │
+                                                         ▼
+                                             ┌────────────────────────┐
+                                             │ UNIFORM_APPROVAL       │
+                                             │────────────────────────│
+                                             │ id PK                  │
+                                             │ approval_no            │
+                                             │ department             │
+                                             │ external_approval_id  │
+                                             │ status                 │
+                                             └────────────┬───────────┘
+                                                          │
+                                                          ▼
+                                             ┌────────────────────────┐
+                                             │ APPROVAL_STEP           │
+                                             │────────────────────────│
+                                             │ id PK                  │
+                                             │ approval_id FK          │
+                                             │ step_no                 │
+                                             │ approver_type           │
+                                             │ status                  │
+                                             └────────────────────────┘
+
+
+┌──────────────────┐
+│ UNIFORM_TYPE     │
+│──────────────────│
+│ id PK            │
+│ code             │
+│ name             │
+└────────┬─────────┘
+         │
+         │ 1:N
+         ▼
+┌──────────────────┐
+│ CATEGORY         │
+│──────────────────│
+│ id PK            │
+│ type_id FK       │
+│ code             │
+│ name             │
+└────────┬─────────┘
+         │
+         │
+         ├───────────────────────┐
+         │                       │
+         ▼                       ▼
+┌──────────────────┐     ┌──────────────────┐
+│ TYPE_SIZE        │     │ PRINT_NAME_RULE  │
+│──────────────────│     │──────────────────│
+│ type_id FK       │     │ type_id FK       │
+│ category_id FK   │     │ category_id FK   │
+│ size_id FK       │     │ print_name_id FK │
+└────────┬─────────┘     └──────────────────┘
+         │
+         ▼
+┌──────────────────┐
+│ UNIFORM_SIZE     │
+│──────────────────│
+│ id PK            │
+│ code             │
+│ name             │
+└──────────────────┘
+
+
+┌──────────────────────┐
+│ UNIFORM_STOCK        │
+│──────────────────────│
+│ id PK                │
+│ type_id FK           │
+│ category_id FK       │
+│ size_id FK           │
+│ current_stock        │
+│ pending_quantity     │
+│ reserved_quantity    │
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│ STOCK_TRANSACTION        │
+│──────────────────────────│
+│ id PK                    │
+│ stock_id FK              │
+│ transaction_type         │
+│ quantity                 │
+│ before_quantity          │
+│ after_quantity           │
+└──────────────────────────┘
+
+
+UNIFORM_REQUEST
+       │
+       │
+       ▼
+┌──────────────────────────┐
+│ DELIVERY_ITEM            │
+│──────────────────────────│
+│ id PK                    │
+│ batch_id FK              │
+│ request_id FK            │
+│ quantity                 │
+│ status                   │
+│ received_at              │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│ DELIVERY_EVIDENCE        │
+│──────────────────────────│
+│ id PK                    │
+│ request_id FK            │
+│ file_path                │
+└──────────────────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│ OLD_UNIFORM_RETURN       │
+│──────────────────────────│
+│ id PK                    │
+│ request_id FK            │
+│ status                   │
+│ returned_at              │
+│ collected_at             │
+└──────────────────────────┘
+
+
+9. API SPECIFICATION
+Mình đề xuất API chia thành 6 nhóm.
+/api/uniform/operator/*
+/api/uniform/master/*
+/api/uniform/request/*
+/api/uniform/approval/*
+/api/uniform/delivery/*
+/api/uniform/automation/*
+
+
+9.1 Operator API
+GET /api/uniform/operator/employee/{genId}
+Lookup employee.
+Response
+{
+  "success": true,
+  "data": {
+    "genId": "26512158",
+    "name": "Tăng Gia Hân",
+    "department": "System Innovation P",
+    "costCenter": "C5H30283"
+  }
+}
+
+
+GET /api/uniform/operator/types
+{
+  "data": [
+    {
+      "id": 1,
+      "code": "GHILE",
+      "name": "Ghile"
+    },
+    {
+      "id": 2,
+      "code": "TSHIRT_MALE",
+      "name": "T-Shirt Male"
+    },
+    {
+      "id": 3,
+      "code": "TSHIRT_FEMALE",
+      "name": "T-Shirt Female"
+    },
+    {
+      "id": 4,
+      "code": "PREGNANT",
+      "name": "Pregnant"
+    }
+  ]
+}
+
+
+GET /api/uniform/operator/types/{typeId}/categories
+Dependent category.
+
+GET /api/uniform/operator/types/{typeId}/categories/{categoryId}/sizes
+Dependent size.
+
+GET /api/uniform/operator/print-names
+Get valid Print Name.
+
+GET /api/uniform/operator/reasons
+{
+  "data": [
+    {
+      "code": "NEW_HIRE",
+      "name": "New Hire"
+    },
+    {
+      "code": "MATERNITY",
+      "name": "Maternity"
+    },
+    {
+      "code": "REPLACE",
+      "name": "Replace"
+    },
+    {
+      "code": "GENERAL",
+      "name": "General"
+    }
+  ]
+}
+
+
+POST /api/uniform/operator/validate
+Frontend có thể gọi trước submit.
+{
+  "genId": "26512158",
+  "typeId": 1,
+  "categoryId": 3,
+  "sizeId": 2,
+  "reason": "NEW_HIRE"
+}
+
+Response:
+{
+  "valid": true,
+  "quantity": 2,
+  "stock": {
+    "current": 49,
+    "pending": 0,
+    "available": 49
+  }
+}
+
+
+POST /api/uniform/operator/requests
+Đây là API quan trọng nhất.
+Request
+{
+  "genId": "26512158",
+  "typeId": 1,
+  "categoryId": 3,
+  "printNameId": null,
+  "sizeId": 2,
+  "reasonCode": "NEW_HIRE",
+  "attachments": []
+}
+
+Backend tự tính:
+quantity
+
+Không tin quantity từ frontend.
+
+Response
+{
+  "success": true,
+  "data": {
+    "requestNo": "UR-20260810-00001",
+    "status": "SUBMITTED",
+    "quantity": 2
+  }
+}
+
+
+10. Request API
+GET /api/uniform/requests
+Admin.
+Filters:
+status
+department
+genId
+type
+reason
+dateFrom
+dateTo
+
+
+GET /api/uniform/requests/{requestNo}
+
+PATCH /api/uniform/requests/{requestNo}/status
+Chỉ dùng cho admin/system.
+
+11. Stock API
+GET /api/uniform/stock
+Dashboard.
+GET /api/uniform/stock/{typeId}/{categoryId}/{sizeId}
+Response:
+{
+  "currentStock": 49,
+  "pending": 0,
+  "reserved": 0,
+  "available": 49
+}
+
+
+12. Approval API
+POST /api/uniform/approval/batches
+AI Agent tạo approval batch.
+{
+  "department": "System Innovation P",
+  "requestIds": [
+    1001,
+    1002,
+    1003
+  ]
+}
+
+
+POST /api/uniform/approval/{id}/submit
+Submit vào mySingle.
+Response:
+{
+  "success": true,
+  "externalApprovalId": "MS-20260810-001"
+}
+
+
+GET /api/uniform/approval/{id}
+
+POST /api/uniform/approval/sync
+AI Agent lấy trạng thái approval.
+
+13. Delivery API
+GET /api/uniform/delivery/batches
+
+POST /api/uniform/delivery/batches
+{
+  "deliveryDate": "2026-08-13",
+  "location": "GA Warehouse"
+}
+
+
+POST /api/uniform/delivery/{requestNo}/received
+Admin confirm employee received.
+{
+  "receivedAt": "2026-08-13T10:15:00+07:00"
+}
+
+Server phải tự lấy datetime server-side.
+
+14. Evidence API
+POST /api/uniform/delivery/{requestNo}/evidence
+Multipart:
+file
+
+Response:
+{
+  "success": true,
+  "fileId": 123
+}
+
+
+15. Old Uniform API
+POST /api/uniform/requests/{requestNo}/return
+{
+  "method": "POST_BOX"
+}
+
+Status:
+WAITING_RETURN
+→ RETURNED_TO_POSTBOX
+→ COLLECTED_BY_GA
+
+
+16. AI AUTOMATION API
+Các endpoint này không expose public.
+Chỉ Shell/cron/internal worker được gọi.
+POST /internal/uniform/jobs/collect
+Collect pending requests
+
+
+POST /internal/uniform/jobs/validate
+Validate pending requests
+
+
+POST /internal/uniform/jobs/submit-approval
+Create + submit approval
+
+
+POST /internal/uniform/jobs/sync-approval
+Pull approval status
+
+
+POST /internal/uniform/jobs/notify
+Send notification
+
+
+17. SHELL / CRON DESIGN
+Vì bạn dùng PHP Shell, mình khuyến nghị không dùng AI Agent trực tiếp như một HTTP endpoint.
+Thiết kế:
+Linux Cron
+   │
+   ├── uniform_collect
+   ├── uniform_validate
+   ├── uniform_submit_approval
+   ├── uniform_sync_approval
+   ├── uniform_notify
+   └── uniform_reminder
+
+Ví dụ:
+php shell/uniform.php collect
+php shell/uniform.php validate
+php shell/uniform.php submit-approval
+php shell/uniform.php sync-approval
+php shell/uniform.php notify
+
+
+18. AI AGENT — NÊN DÙNG AI Ở ĐÂU?
+Một điểm mình rất khuyến nghị:
+Không để LLM quyết định business rule.
+Ví dụ không nên:
+LLM tự suy luận:
+"Employee này chắc được 2 áo"
+
+Mà phải:
+PHP Rule Engine
+       ↓
+Quantity = 2
+
+AI Agent chỉ orchestrate:
+AI Agent
+   │
+   ├── Get requests
+   ├── Call validation service
+   ├── Group department
+   ├── Generate approval content
+   ├── Submit
+   ├── Read approval result
+   └── Send notification
+
+Business Rule
+Nên để deterministic:
+Policy Engine
+
+AI
+Nên dùng cho:
+Generate approval email.
+Generate notification.
+Summarize rejected requests.
+Explain validation error.
+Detect unusual request pattern nếu cần.
+
+19. APPROVAL EMAIL AUTOMATION
+Template:
+Subject:
+
+[DEPT. NAME] APPROVAL REQUEST UNIFORM
+
+Body:
+Dear Sir/Madam,
+
+Please check and support as below request.
+
+Table:
+Field
+Source
+User GEN ID
+Registration
+Code
+Master
+Category
+Registration
+Type
+Registration
+Print Name
+Registration
+Size
+Registration
+Qty
+System
+Reason
+Registration
+
+Nếu:
+Reason = Replace
+
+thì:
+Attachment:
+Picture of damaged uniform
+
+
+20. REQUEST STATUS MACHINE
+Đây là phần cực kỳ quan trọng cho backend.
+Mình đề xuất:
+DRAFT
+  │
+  ▼
+SUBMITTED
+  │
+  ▼
+VALIDATING
+  │
+  ├──────────────┐
+  ▼              ▼
+VALID          INVALID
+  │              │
+  ▼              ▼
+PENDING_APPROVAL REJECTED_VALIDATION
+  │
+  ▼
+PART_LEADER_PENDING
+  │
+  ├── REJECTED
+  │
+  ▼
+GA_PENDING
+  │
+  ├── REJECTED
+  │
+  ▼
+APPROVED
+  │
+  ▼
+WAITING_DELIVERY
+  │
+  ▼
+READY_FOR_PICKUP
+  │
+  ▼
+DELIVERED
+  │
+  ▼
+RECEIVED
+  │
+  ▼
+COMPLETED
+
+Với replacement:
+RECEIVED
+   │
+   ▼
+WAITING_OLD_RETURN
+   │
+   ▼
+RETURNED_TO_POSTBOX
+   │
+   ▼
+COMPLETED
+
+
+21. ERROR STATUS
+Không nên dùng chung REJECTED cho mọi trường hợp.
+Nên phân biệt:
+VALIDATION_FAILED
+STOCK_INSUFFICIENT
+DUPLICATE_REQUEST
+POLICY_EXCEEDED
+APPROVAL_REJECTED
+DELIVERY_FAILED
+
+Ví dụ:
+{
+  "code": "STOCK_INSUFFICIENT",
+  "message": "Size M is currently unavailable."
+}
+
+
+22. FRONTEND STRUCTURE
+Theo cấu trúc đang dùng:
+webroot/
+└── app/
+    ├── pages/
+    │   ├── master/
+    │   │   └── uniform/
+    │   │       ├── dashboard.tsx
+    │   │       ├── requests.tsx
+    │   │       ├── request-detail.tsx
+    │   │       ├── approval.tsx
+    │   │       ├── delivery.tsx
+    │   │       ├── stock.tsx
+    │   │       ├── master-type.tsx
+    │   │       ├── master-category.tsx
+    │   │       ├── master-size.tsx
+    │   │       └── policies.tsx
+    │   │
+    │   └── operator/
+    │       └── uniform/
+    │           ├── register.tsx
+    │           ├── success.tsx
+    │           └── status.tsx
+    │
+    ├── services/
+    │   ├── uniform/
+    │   │   ├── employeeService.ts
+    │   │   ├── uniformService.ts
+    │   │   ├── requestService.ts
+    │   │   ├── stockService.ts
+    │   │   ├── approvalService.ts
+    │   │   └── deliveryService.ts
+    │   │
+    │   └── api.ts
+    │
+    ├── components/
+    │   └── uniform/
+    │       ├── UniformTypeSelector.tsx
+    │       ├── CategorySelector.tsx
+    │       ├── SizeSelector.tsx
+    │       ├── SizeChart.tsx
+    │       ├── UniformImage.tsx
+    │       ├── QuantityDisplay.tsx
+    │       ├── StockStatus.tsx
+    │       ├── RequestStatus.tsx
+    │       ├── EvidenceUpload.tsx
+    │       └── DeliveryConfirm.tsx
+    │
+    └── types/
+        └── uniform.ts
+
+
+23. BACKEND STRUCTURE
+Với PHP MVC:
+backend/
+├── Controller/
+│   └── Uniform/
+│       ├── OperatorController.php
+│       ├── RequestController.php
+│       ├── StockController.php
+│       ├── ApprovalController.php
+│       ├── DeliveryController.php
+│       └── MasterController.php
+│
+├── Model/
+│   └── Uniform/
+│       ├── UniformRequest.php
+│       ├── UniformType.php
+│       ├── UniformCategory.php
+│       ├── UniformSize.php
+│       ├── UniformStock.php
+│       ├── UniformPolicy.php
+│       ├── UniformApproval.php
+│       ├── UniformDelivery.php
+│       └── UniformNotification.php
+│
+├── Service/
+│   └── Uniform/
+│       ├── RequestValidationService.php
+│       ├── PolicyService.php
+│       ├── StockService.php
+│       ├── ApprovalService.php
+│       ├── DeliveryService.php
+│       └── NotificationService.php
+│
+├── Integration/
+│   ├── IntranetClient.php
+│   ├── MySingleClient.php
+│   ├── MailClient.php
+│   └── KnoxMailClient.php
+│
+└── Shell/
+    └── Uniform/
+        ├── CollectRequests.php
+        ├── ValidateRequests.php
+        ├── SubmitApproval.php
+        ├── SyncApproval.php
+        ├── NotifyDelivery.php
+        └── StockSync.php
+
+
+24. QUAN TRỌNG: TÁCH RULE SERVICE KHỎI CONTROLLER
+Không nên viết kiểu:
+if ($reason == 'NEW_HIRE') {
+    ...
+}
+
+rải rác trong Controller.
+Nên:
+Controller
+    ↓
+RequestService
+    ↓
+PolicyService
+    ↓
+StockService
+
+Ví dụ:
+$quantity = $policyService->calculateQuantity(
+    $employee,
+    $type,
+    $reason
+);
+
+Sau đó:
+$stockService->validate(
+    $type,
+    $category,
+    $size,
+    $quantity
+);
+
+
+25. MASTER DATA RELATIONSHIP
+Mình khuyến nghị thiết kế:
+TYPE
+ │
+ ├── CATEGORY
+ │      │
+ │      └── SIZE
+ │
+ └── IMAGE
+
+REASON
+ │
+ └── POLICY
+
+POLICY
+ │
+ ├── Employee Group
+ ├── Type
+ ├── Quantity
+ └── Period
+
+Như vậy sau này business nói:
+New hire T-shirt = 4 thay vì 3
+thì không cần sửa PHP code.
+Chỉ sửa:
+uniform_policies
+
+
+26. ADMIN DASHBOARD
+Mẫu admin mới nên có dashboard:
+┌─────────────────────────────────────────────┐
+│             UNIFORM DASHBOARD               │
+├────────────┬────────────┬───────────────────┤
+│ Requests   │ Pending    │ Approved          │
+│ 125        │ 20         │ 95                │
+├────────────┼────────────┼───────────────────┤
+│ Delivered  │ Returned   │ Stock Alert       │
+│ 70         │ 40         │ 5                 │
+└────────────┴────────────┴───────────────────┘
+
+
+Request Summary
+All
+Pending Validation
+Approval
+Approved
+Rejected
+Ready
+Delivered
+Completed
+
+
+Department Summary
+Department       Requests    Approved    Delivered
+---------------------------------------------------
+IT               20          18          15
+HR               15          15          14
+Production       50          42          30
+...
+
+
+27. OPERATOR MOBILE UI
+Form nên theo layout:
+┌──────────────────────────────┐
+│ 👕 ĐĂNG KÝ ĐỒNG PHỤC         │
+│                         VIE ENG│
+├──────────────────────────────┤
+│ GEN ID                       │
+│ [________________________]   │
+│                              │
+│ Name                         │
+│ Tăng Gia Hân                 │
+│                              │
+│ Department                   │
+│ System Innovation P          │
+├──────────────────────────────┤
+│ LOẠI ĐỒNG PHỤC               │
+│ [ Ghile ▼ ]                  │
+│                              │
+│ CATEGORY                     │
+│ [ Visitor ▼ ]                │
+│                              │
+│ PRINT NAME                   │
+│ [ None ▼ ]                   │
+│                              │
+│ SIZE                         │
+│ [ S ▼ ]                      │
+│                              │
+│ REASON                       │
+│ [ New Hire ▼ ]              │
+├──────────────────────────────┤
+│ QUANTITY                     │
+│             2                │
+├──────────────────────────────┤
+│ [ UNIFORM IMAGE ]            │
+├──────────────────────────────┤
+│ 📏 BẢNG SIZE                 │
+│                              │
+│ Ghile                         │
+│ S  M  L  XL XXL              │
+│ ...                           │
+│                              │
+│ T-shirt Male                 │
+│ ...                           │
+│                              │
+│ Pregnant                     │
+│ ...                           │
+├──────────────────────────────┤
+│ [        REGISTER        ]   │
+└──────────────────────────────┘
+
+Đây phù hợp với requirement:
+Form đăng ký cùng trang với bảng size & hình ảnh.
+
+28. ĐIỂM CẦN CHỐT TRƯỚC KHI CODE
+Có 7 điểm mình không khuyên developer tự đoán.
+1. Direct / Indirect
+Hiện requirement:
+New hire
+Indirect → 2 Ghile
+Direct → 3 T-shirt
+
+Cần xác định employee master field nào xác định Direct/Indirect.
+
+2. Maternity
+Cần chốt:
+Maternity = 2
+
+có phải 2 request riêng không?
+Mình khuyến nghị:
+1 Parent Request
+    ├── Allocation Week 11
+    └── Allocation Week 24
+
+
+3. Current Stock vs Pending
+Cần chốt:
+Available =
+Current Stock - Pending
+
+hay:
+Available =
+Current Stock - Pending - Reserved
+
+Mình khuyến nghị phương án thứ hai.
+
+4. Approval timing
+Cần chốt chính xác:
+Monday
+→ collect
+
+hay:
+2 times/month
+
+và ngày cụ thể.
+
+5. "GA warehouse Thursday"
+Cần chốt:
+Thursday = Admin receives stock
+
+hay:
+Thursday = Employee receives stock
+
+Requirement hiện tại đang mô tả cả hai khái niệm.
+
+6. Received evidence
+Cần chốt evidence là:
+Button "Received"
++
+Datetime
+
+hay:
+Button
++
+Photo
+
+Requirement hiện tại nói date/time là evidence, còn Admin cần upload evidence.
+
+7. Non-KnoxID security
+Đây là điểm kỹ thuật cần đặc biệt chú ý.
+Form public:
+QR / Link
+
+nhưng lại yêu cầu:
+GEN ID
+
+Nếu chỉ:
+Nhập GEN ID → submit
+
+thì bất kỳ ai biết GEN ID đều có thể tạo request.
+Vì vậy về mặt security, mình không khuyến nghị production chỉ dùng GEN ID.
+Có thể giữ UX:
+QR / Link
+ ↓
+GEN ID
+ ↓
+Verify
+ ↓
+Registration
+
+và bổ sung một cơ chế xác thực phù hợp với hệ thống công ty nếu business cho phép.
+Điểm này cần IT/HR xác nhận trước khi public link được đưa production.
+
+29. FINAL ARCHITECTURE
+Toàn bộ hệ thống mình đề xuất:
+                          ┌────────────────────┐
+                           │   EMPLOYEE MASTER   │
+                           └─────────┬──────────┘
+                                     │
+                                     ▼
+┌──────────────────┐       ┌──────────────────────┐
+│ QR / HR LINK     │──────►│ OPERATOR FRONTEND    │
+│                  │       │ React + TypeScript   │
+└──────────────────┘       └──────────┬───────────┘
+                                      │
+                                      ▼
+                           ┌──────────────────────┐
+                           │ PHP REST API         │
+                           │ Controller           │
+                           └──────────┬───────────┘
+                                      │
+                  ┌───────────────────┼───────────────────┐
+                  │                   │                   │
+                  ▼                   ▼                   ▼
+             RequestService      PolicyService       StockService
+                  │                   │                   │
+                  └───────────────────┼───────────────────┘
+                                      │
+                                      ▼
+                              ┌───────────────┐
+                              │   DATABASE    │
+                              └───────┬───────┘
+                                      │
+                                      ▼
+                              ┌───────────────┐
+                              │   AI AGENT    │
+                              │ PHP Shell     │
+                              └───────┬───────┘
+                                      │
+              ┌───────────────────────┼────────────────────────┐
+              │                       │                        │
+              ▼                       ▼                        ▼
+         Employee Data            mySingle                   Mail
+              │                       │                        │
+              │                       │                        │
+              └───────────────────────┼────────────────────────┘
+                                      │
+                                      ▼
+                                GA / PART LEADER
+                                      │
+                                      ▼
+                                APPROVED REQUEST
+                                      │
+                                      ▼
+                                ADMIN PORTAL
+                                      │
+                                      ▼
+                                GA WAREHOUSE
+                                      │
+                                      ▼
+                                  DELIVERY
+                                      │
+                         ┌────────────┴─────────────┐
+                         │                          │
+                         ▼                          ▼
+                    New Uniform                Old Uniform
+                         │                          │
+                         ▼                          ▼
+                    Employee                  Post Box
+                                                    │
+                                                    ▼
+                                                    GA
+
+Thứ tự implement mình khuyên dùng
+Phase 1 — Core Master + Operator
+Type
+Category
+Size
+Print Name
+Reason
+Policy
+Employee lookup
+Registration form
+Validation
+
+Phase 2 — Request + Stock
+Request
+Stock
+Pending
+Policy validation
+Attachment
+Request history
+
+Phase 3 — Admin Portal
+Dashboard
+Request list
+Request detail
+Stock
+Approval status
+Delivery
+Evidence
+
+Phase 4 — AI Automation
+Shell
+ ↓
+Collect
+ ↓
+Validate
+ ↓
+Group Department
+ ↓
+Generate Approval
+ ↓
+mySingle
+ ↓
+Sync Approval
+ ↓
+Notification
+
+Phase 5 — Delivery
+Thursday Batch
+ ↓
+Admin receive
+ ↓
+Delivery
+ ↓
+Employee Received
+ ↓
+Evidence
+ ↓
+Old Uniform Return
+
+Phase 6 — Optimization
+AI summary
+AI exception detection
+AI reminder
+AI reporting
+
+Điểm mấu chốt của kiến trúc này là AI Agent không thay thế backend business logic. PolicyService, StockService và validation phải là deterministic; AI Agent chỉ điều phối các bước tự động. Như vậy nếu sau này HR đổi policy từ 3 T-shirt thành 2 T-shirt, hoặc đổi chu kỳ từ hàng tuần sang 2 lần/tháng, bạn chỉ cần thay master/policy và scheduler thay vì phải sửa toàn bộ workflow.
+

@@ -1,0 +1,6 @@
+{
+  "name": "UniformAI - Smart Uniform Management",
+  "description": "AI-powered corporate uniform allocation, request tracking, batch validation, stock monitoring, and employee registration portal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
