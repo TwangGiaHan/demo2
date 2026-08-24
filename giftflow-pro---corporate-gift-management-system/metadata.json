@@ -1,0 +1,6 @@
+{
+  "name": "GiftFlow Pro - Corporate Gift Management System",
+  "description": "Hệ thống quản lý quà tặng doanh nghiệp và đăng ký nhận quà dành cho Quản trị viên và Nhân viên/Operator",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
