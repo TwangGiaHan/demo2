@@ -1,0 +1,98 @@
+## Plan: Hệ thống L&D Test & Survey
+
+TL;DR: Xây dựng một hệ thống quản lý khảo sát và bài test nội bộ theo mô hình đơn giản, dễ bảo trì: backend PHP REST API + frontend React SPA; phân quyền rõ ràng cho Admin và User; dữ liệu theo hướng chuẩn hóa theo các bảng khảo sát, câu hỏi, người tham gia, kết quả, và phân quyền làm bài. Mục tiêu là triển khai nhanh, mobile-friendly, chủ đạo màu xanh Samsung, và hỗ trợ login demo theo thông tin xác thực gồm eid, fullname, department, với login bằng eid + ngày sinh hoặc SSO nếu IP nằm trong dãy mạng nội bộ.
+
+### 1. Nền tảng và kiến trúc
+1. Khởi tạo project theo mô hình nhỏ gọn: backend PHP API, frontend React, cấu hình môi trường tách biệt cho dev/prod.
+2. Dùng cấu trúc thư mục rõ ràng: app/controllers, app/services, app/models, app/middleware, core, api/routes, frontend/src, frontend/public.
+3. Tạo REST API cho auth, admin, survey, questions, assignments, results; React lấy dữ liệu qua JSON API.
+4. Dùng MySQL schema chuẩn hóa với các bảng chính: admins, users, surveys, survey_courses, survey_questions, survey_assignments, survey_results, survey_attempts, question_bank, question_category.
+5. Thiết kế API đồng nhất: /api/auth/login, /api/admin/surveys, /api/admin/questions, /api/admin/assignments, /api/user/tests, /api/results.
+
+### 2. Phân quyền và xác thực
+1. Xây dựng auth service với hai vai trò: Admin và User.
+2. Login demo: nhận eid + password + birthday; nếu hợp lệ trả về { eid, full_name, department, role, token }.
+3. Hỗ trợ SSO nội bộ: nếu IP thuộc dãy mạng đã định nghĩa, cho phép login qua Samsung SSO mà không cần password hệ thống.
+4. Middleware kiểm tra JWT/session, xác định role, hạn chế thao tác admin và user theo quyền hiển thị tab.
+5. Phân quyền giao diện: User chỉ thấy “Làm bài test/Khảo sát”; Admin thấy toàn bộ tab quản lý.
+
+### 3. Thiết kế dữ liệu và schema
+1. Tạo bảng survey_courses để lưu khóa học/đợt thi/đợt khảo sát, bao gồm key, name, type, category, total_questions, pass_score, duration_minutes, is_active, created_at.
+2. Tạo bảng survey_questions lưu câu hỏi theo type: single_choice, multiple_choice, true_false, rating, text, attachment, branching.
+3. Tạo bảng survey_assignments để gắn người dùng với bài khảo sát/test theo status, score, completed_at.
+4. Tạo bảng survey_results để lưu kết quả từng người, gồm survey_id, user_id, attempt_no, score, passed, submitted_at, answers_json.
+5. Tạo bảng user_profile hoặc survey_users cho danh sách người tham gia, lưu eid, full_name, department, email, status.
+6. Tạo bảng question_bank hoặc question_categories để phân loại theo chủ đề NHO, RBA, HSE, Đào tạo, v.v.
+7. Tạo indexes cho survey_id, user_id, eid, status, created_at để tối ưu truy vấn.
+
+### 4. Quản trị Admin
+1. Quản lý khóa học/đợt thi: CRUD, mở/đóng, thiết lập loại test/survey, tổng số câu, thời gian, điểm đạt.
+2. Quản lý thư viện câu hỏi: CRUD, import Excel, phân loại theo chủ đề, hỗ trợ 7 loại câu hỏi, randomization theo nhóm chủ đề.
+3. Quản lý danh sách học viên: import Excel, gắn người tham gia vào đợt test/survey, kiểm tra trạng thái pending/in_progress/completed.
+4. Quản lý khảo sát tùy chỉnh: tạo template survey, thiết lập logic nhánh, xem tiến độ hoàn thành và báo cáo kết quả.
+5. UI admin cần có tab: Khóa học, Câu hỏi, Kết quả, Khảo sát, với giao diện desktop/Intranet rõ ràng.
+
+### 5. Bài test và khảo sát cho User
+1. User chỉ thấy tab “Làm bài test/Khảo sát”.
+2. Khi login thành công, hệ thống lọc các bài được giao theo eid + department + course / assignment.
+3. Dashboard hiển thị danh sách bài đang mở, thời gian còn lại, trạng thái chưa làm/đang làm/đã làm.
+4. Thiết kế form làm bài hỗ trợ: multiple choice, multi-select, true/false, rating, text area, attachment upload, branching logic.
+5. Randomization: hệ thống lấy câu hỏi theo chủ đề theo tỷ lệ quy định, bốc ngẫu nhiên và giấu đáp án phụ thuộc vào cấu hình đề.
+6. Khi user nộp bài, lưu JSON câu trả lời, tính điểm, quyết định pass/fail, cập nhật trạng thái assignment.
+
+### 6. Logic random / câu hỏi / nhánh
+1. Mỗi survey/test có cấu hình: total_questions, per_topic_limits, pass_score, duration_minutes, randomization_enabled.
+2. Tạo engine random lấy N câu từ ngân hàng theo cấu hình từng chủ đề; ưu tiên không trùng và có độ phân bố hợp lý.
+3. Với logic branching, lưu điều kiện theo schema: question_id, answer_value, action { next_question_id | end_test }.
+4. Tạo một common evaluation service để tính điểm theo từng loại câu hỏi: single choice, multiple selection, text/attachment, rating.
+5. Với multiple select, chỉ tính đạt khi chọn đúng toàn bộ đáp án đúng; với survey, pass_score có thể null hoặc bỏ qua quy định đạt.
+
+### 7. Kết quả và báo cáo
+1. Tạo dashboard báo cáo cho Admin: tỷ lệ hoàn thành, điểm trung bình, pass rate, thời gian làm trung bình, phân loại theo khóa, theo chủ đề, theo nhân viên.
+2. Cho phép xuất CSV/Excel và xem chi tiết bài làm từng người.
+3. Mỗi kết quả attempt phải lưu snapshot câu trả lời để phục vụ audit, rà soát và phát hiện gian lận.
+4. Cung cấp API báo cáo dạng tổng hợp và chi tiết cho UI admin.
+
+### 8. Frontend React (mobile-first, Samsung theme)
+1. Thiết kế UI thân thiện, mobile-first, tối ưu cho màn hình điện thoại và máy tính; màu xanh Samsung, buttons rõ ràng, card layout.
+2. Tạo cấu trúc route: /login, /dashboard, /admin/courses, /admin/questions, /admin/assignments, /admin/results, /user/tests, /user/test/:id.
+3. Dùng React Query hoặc state management nhẹ để fetch data và cache API.
+4. Đăng nhập và bảo mật client-side: lưu token an toàn, redirect theo role, chặn route không hợp lệ.
+5. Tạo form upload ảnh, form tạo câu hỏi, form thiết lập cấu hình đề, và form xem báo cáo.
+
+### 9. Bảo mật và chuẩn hóa triển khai
+1. Sử dụng password hash (bcrypt/argon2) cho login hệ thống, không lưu password plain text.
+2. Sử dụng CSRF, CORS, input validation, prepared statements, JWT/session cookie phù hợp môi trường intranet.
+3. Giới hạn quyền cho API; không cho phép User gọi endpoint admin.
+4. Validate upload ảnh: hỗ trợ png/jpg/jpeg/webp, tối ưu hóa bằng cách convert sang WebP trước khi lưu để giảm dung lượng; quy định dung lượng tối đa phù hợp mobile/intranet, sanitize tên file.
+5. Tạo pipeline xử lý ảnh: upload -> kiểm tra MIME -> resize tối đa theo kích thước hợp lý -> convert sang WebP -> lưu vào storage/uploads/questions hoặc uploads/answers -> giữ bản gốc nếu cần nhưng ưu tiên lưu WebP để nhẹ hơn.
+6. Thiết kế log audit: created_by, updated_by, created_at, updated_at cho các thao tác quản trị.
+
+### 10. Phương án triển khai thực tế
+1. Khởi tạo repo và phân tách backend PHP và frontend React; không dùng stack quá nặng để dễ bảo trì.
+2. Tạo migration DB và seed dữ liệu mẫu cho admin, department, question categories, sample questions.
+3. Phát triển theo từng module: auth -> admin CRUD -> question bank -> survey assignment -> results -> UI polish.
+4. Sau mỗi module, chạy smoke test CRUD và kiểm thử các flow login, làm bài, chấm điểm, báo cáo.
+
+### 11. Verification
+1. Chạy migration DB và kiểm tra schema, foreign keys, indexes.
+2. Kiểm thử API auth: login thành công với eid+birthday; login SSO với IP hợp lệ; deny role không hợp lệ.
+3. Kiểm thử nghiệp vụ: tạo survey, gắn người tham gia, làm bài, chấm điểm, xuất báo cáo.
+4. Kiểm thử giao diện: User thấy đúng tab; Admin thấy đầy đủ tab; mobile responsive trên điện thoại.
+5. Kiểm thử upload ảnh và branching logic với các câu hỏi mẫu.
+
+### 12. Quyết định thiết kế chính
+- Chọn mô hình đơn giản, dễ bảo trì: PHP + MySQL + React, không dùng framework nặng nếu dự án nhỏ.
+- Tách rõ backend và frontend, dùng REST API chuẩn hóa.
+- Dùng role-based access thay vì biến mọi logic vào frontend.
+- Thực hiện login demo phù hợp quy trình nội bộ Samsung với eid, họ tên, phòng ban, và tùy chọn SSO theo IP.
+- Giữ nguyên yêu cầu business từ mô tả: danh sách bảng dữ liệu, loại câu hỏi, random đề, logic nhánh, báo cáo, mobile friendly.
+
+### 13. Scope đã xác nhận
+- Bao gồm: Admin L&D quản lý khóa học, câu hỏi, khảo sát, gắn người tham gia, xem báo cáo, login demo, UI mobile-friendly.
+- Không bao gồm: hệ thống ERP tích hợp phức tạp, phân tích AI, workflow approval đa cấp, hoặc nền tảng microservice quá lớn.
+
+### 14. Cách triển khai tiếp theo
+1. Sau khi phê duyệt, tôi sẽ khởi tạo project skeleton cho backend PHP và frontend React.
+2. Tiếp theo, tôi sẽ dựng migration schema MySQL và các API auth/admin/surveys.
+3. Sau đó, tôi sẽ dựng UI quản trị và màn hình làm bài test/survey cho user.
